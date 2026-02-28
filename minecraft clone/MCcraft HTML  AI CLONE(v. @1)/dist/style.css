@@ -1,0 +1,44 @@
+#inventoryScreen{
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  width:600px;
+  height:400px;
+  background:#c6c6c6;
+  border:6px solid #555;
+  display:none;
+  padding:20px;
+}
+
+#playerArea{
+  position:absolute;
+  left:20px;
+  top:20px;
+  width:120px;
+  height:180px;
+  background:#999;
+}
+
+#craftingArea{
+  position:absolute;
+  left:180px;
+  top:40px;
+}
+
+.craftSlot{
+  width:50px;
+  height:50px;
+  border:2px solid #444;
+  background:#aaa;
+  margin:5px;
+}
+
+#inventoryGrid{
+  position:absolute;
+  bottom:40px;
+  left:150px;
+  display:grid;
+  grid-template-columns:repeat(9,50px);
+  gap:5px;
+}

@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+    <meta charset="UTF-8">
+    <title>MCcraft HTML  AI CLONE(v. @1)</title>
+    <link rel="stylesheet" href="./style.css">
+
+  </head>
+    
+  <body>
+  <!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+body{margin:0;overflow:hidden}
+canvas{position:fixed;top:0;left:0;z-index:0}
+#crosshair,#ui,#inventoryScreen{position:fixed;z-index:10}
+
+#crosshair{
+ top:50%;left:50%;width:20px;height:20px;
+ transform:translate(-50%,-50%);
+}
+#crosshair::before,#crosshair::after{
+ content:"";position:absolute;background:white;
+}
+#crosshair::before{left:9px;top:0;width:2px;height:20px}
+#crosshair::after{top:9px;left:0;width:20px;height:2px}
+
+#ui{
+ bottom:20px;left:50%;
+ transform:translateX(-50%);
+ display:flex;gap:8px
+}
+.slot{
+ width:45px;height:45px;
+ border:3px solid white;
+ display:flex;align-items:center;justify-content:center;
+ font-weight:bold;color:white;background:#222
+}
+.active{border-color:yellow}
+
+#inventoryScreen{
+ top:50%;left:50%;
+ transform:translate(-50%,-50%);
+ width:500px;height:350px;
+ background:#222;border:4px solid white;
+ display:none;flex-wrap:wrap;padding:10px
+}
+.invItem{
+ width:60px;height:60px;margin:5px;
+ display:flex;align-items:center;justify-content:center;
+ font-weight:bold;color:white;cursor:pointer
+}
+</style>
+</head>
+<body>
+
+<div id="crosshair"></div>
+<div id="ui"></div>
+<div id="inventoryScreen"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script>
+
+// 🔊 사운드
+function playSound(freq){
+ const ctx=new(window.AudioContext||window.webkitAudioContext)();
+ const osc=ctx.createOscillator();
+ const gain=ctx.createGain();
+ osc.type="square";
+ osc.frequency.value=freq;
+ gain.gain.value=0.05;
+ osc.connect(gain);
+ gain.connect(ctx.destination);
+ osc.start();
+ osc.stop(ctx.currentTime+0.08);
+}
+
+// 기본 설정
+let scene=new THREE.Scene();
+scene.background=new THREE.Color(0x87ceeb);
+
+let camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+let renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+
+let light=new THREE.DirectionalLight(0xffffff,1);
+light.position.set(10,20,10);
+scene.add(light);
+
+let geometry=new THREE.BoxGeometry(1,1,1);
+
+// 블럭 재질
+let materials={
+ grass:new THREE.MeshLambertMaterial({color:0x55aa55}),
+ dirt:new THREE.MeshLambertMaterial({color:0x9b7653}),
+ sand:new THREE.MeshLambertMaterial({color:0xEEDC82}),
+ stone:new THREE.MeshLambertMaterial({color:0x888888}),
+ gravel:new THREE.MeshLambertMaterial({color:0x555555}),
+ clay:new THREE.MeshLambertMaterial({color:0x8fa0c7}),
+ snow:new THREE.MeshLambertMaterial({color:0xffffff}),
+ coal:new THREE.MeshLambertMaterial({color:0x222222}),
+ iron:new THREE.MeshLambertMaterial({color:0xd8af93}),
+ gold:new THREE.MeshLambertMaterial({color:0xffd700}),
+ diamond:new THREE.MeshLambertMaterial({color:0x00ffff}),
+ brick:new THREE.MeshLambertMaterial({color:0xaa4a44}),
+ plank:new THREE.MeshLambertMaterial({color:0xc19a6b}),
+ glass:new THREE.MeshLambertMaterial({color:0x88ccff,transparent:true,opacity:0.5}),
+ wood:new THREE.MeshLambertMaterial({color:0x8B4513}),
+ leaves:new THREE.MeshLambertMaterial({color:0x2E8B57}),
+ bedrock:new THREE.MeshLambertMaterial({color:0x111111}),
+ water:new THREE.MeshLambertMaterial({color:0x3399ff,transparent:true,opacity:0.6})
+};
+
+let blocks=[];
+let blockMap=new Map();
+let generated=new Set();
+function key(x,y,z){return`${x},${y},${z}`}
+
+function createBlock(x,y,z,type){
+ let cube=new THREE.Mesh(geometry,materials[type]);
+ cube.position.set(x,y,z);
+ cube.userData.type=type;
+ scene.add(cube);
+ blocks.push(cube);
+ blockMap.set(key(x,y,z),cube);
+}
+
+function removeBlock(x,y,z){
+ let k=key(x,y,z);
+ if(!blockMap.has(k))return;
+ let cube=blockMap.get(k);
+ if(cube.userData.type==="bedrock")return;
+ scene.remove(cube);
+ blocks=blocks.filter(b=>b!==cube);
+ blockMap.delete(k);
+}
+
+// 🌴 섬 높이
+let islandRadius=150;
+function getHeight(x,z){
+ let dist=Math.sqrt(x*x+z*z);
+ let base=Math.sin(x*0.05)*5+Math.cos(z*0.05)*5;
+ let falloff=Math.max(0,1-(dist/islandRadius));
+ return Math.floor(base*falloff*8);
+}
+
+let seaLevel=2;
+
+function createTree(x,y,z){
+ for(let i=1;i<=4;i++)createBlock(x,y+i,z,"wood");
+ for(let dx=-1;dx<=1;dx++)
+  for(let dz=-1;dz<=1;dz++)
+   createBlock(x+dx,y+4,z+dz,"leaves");
+}
+
+let renderDistance=40;
+
+function generateWorld(){
+ let px=Math.floor(camera.position.x);
+ let pz=Math.floor(camera.position.z);
+
+ for(let x=px-renderDistance;x<px+renderDistance;x++){
+  for(let z=pz-renderDistance;z<pz+renderDistance;z++){
+
+   let base=x+","+z;
+   if(generated.has(base))continue;
+
+   let h=getHeight(x,z);
+
+   createBlock(x,-6,z,"bedrock");
+
+   for(let y=-5;y<h;y++){
+    let ore=Math.random();
+    if(y<-2){
+     if(ore<0.01)createBlock(x,y,z,"diamond");
+     else if(ore<0.03)createBlock(x,y,z,"gold");
+     else if(ore<0.06)createBlock(x,y,z,"iron");
+     else if(ore<0.10)createBlock(x,y,z,"coal");
+     else createBlock(x,y,z,"stone");
+    }else createBlock(x,y,z,"stone");
+   }
+
+   if(h<=seaLevel){
+    for(let y=h;y<=seaLevel;y++)
+     createBlock(x,y,z,"water");
+   }else{
+    createBlock(x,h,z,"grass");
+    if(Math.random()<0.08&&h>0)
+     createTree(x,h,z);
+   }
+
+   generated.add(base);
+  }
+ }
+}
+
+// 🎒 인벤토리
+let inventory={};
+Object.keys(materials).forEach(k=>{
+ if(k!=="bedrock"&&k!=="water")inventory[k]=0;
+});
+inventory.grass=20;
+
+let items=Object.keys(inventory);
+let selected=0;
+
+let ui=document.getElementById("ui");
+let invScreen=document.getElementById("inventoryScreen");
+let invOpen=false;
+
+function updateUI(){
+ ui.innerHTML="";
+ items.forEach((item,i)=>{
+  let slot=document.createElement("div");
+  slot.className="slot";
+  if(i===selected)slot.classList.add("active");
+  if(inventory[item]>0){
+   slot.style.backgroundColor=materials[item].color.getStyle();
+   slot.innerText=inventory[item];
+  }else slot.innerText="0";
+  ui.appendChild(slot);
+ });
+}
+updateUI();
+
+function updateInventoryScreen(){
+ invScreen.innerHTML="";
+ items.forEach(item=>{
+  let div=document.createElement("div");
+  div.className="invItem";
+  div.style.backgroundColor=materials[item].color.getStyle();
+  div.innerText=inventory[item];
+  div.onclick=()=>{
+   selected=items.indexOf(item);
+   updateUI();
+   toggleInventory();
+  };
+  invScreen.appendChild(div);
+ });
+}
+
+function toggleInventory(){
+ invOpen=!invOpen;
+ invScreen.style.display=invOpen?"flex":"none";
+ if(invOpen){
+  document.exitPointerLock();
+  updateInventoryScreen();
+ }else document.body.requestPointerLock();
+}
+
+document.addEventListener("keydown",e=>{
+ if(e.code==="KeyE")toggleInventory();
+ let n=parseInt(e.key);
+ if(n>=1&&n<=items.length){
+  selected=n-1;
+  updateUI();
+ }
+});
+
+// 설치/삭제
+let raycaster=new THREE.Raycaster();
+let mouse=new THREE.Vector2(0,0);
+
+document.addEventListener("mousedown",(e)=>{
+ if(document.pointerLockElement!==document.body)return;
+ raycaster.setFromCamera(mouse,camera);
+ let hits=raycaster.intersectObjects(blocks);
+ if(hits.length>0){
+  let b=hits[0].object;
+  let p=b.position;
+
+  if(e.button===0){
+   let t=b.userData.type;
+   if(t!=="bedrock"){
+    removeBlock(p.x,p.y,p.z);
+    if(inventory[t]!=undefined)inventory[t]++;
+    updateUI();
+    playSound(200);
+   }
+  }
+
+  if(e.button===2){
+   let normal=hits[0].face.normal;
+   let np=p.clone().add(normal);
+   let item=items[selected];
+   if(inventory[item]>0&&!blockMap.has(key(np.x,np.y,np.z))){
+    createBlock(np.x,np.y,np.z,item);
+    inventory[item]--;
+    updateUI();
+    playSound(500);
+   }
+  }
+ }
+});
+document.addEventListener("contextmenu",e=>e.preventDefault());
+
+// 이동
+camera.position.set(0,20,5);
+document.body.addEventListener("click",()=>document.body.requestPointerLock());
+
+let yaw=0,pitch=0,keys={},velocityY=0,canJump=false;
+
+document.addEventListener("mousemove",(e)=>{
+ if(document.pointerLockElement===document.body){
+  yaw-=e.movementX*0.002;
+  pitch-=e.movementY*0.002;
+  pitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,pitch));
+ }
+});
+
+document.addEventListener("keydown",e=>keys[e.code]=true);
+document.addEventListener("keyup",e=>keys[e.code]=false);
+
+function checkGround(){
+ let down=new THREE.Raycaster(camera.position,new THREE.Vector3(0,-1,0),0,1.7);
+ let hits=down.intersectObjects(blocks);
+ if(hits.length>0){
+  camera.position.y=hits[0].object.position.y+2;
+  velocityY=0;
+  canJump=true;
+ }else canJump=false;
+}
+
+function animate(){
+ requestAnimationFrame(animate);
+ generateWorld();
+
+ camera.rotation.order="YXZ";
+ camera.rotation.y=yaw;
+ camera.rotation.x=pitch;
+
+ let speed=camera.position.y<=seaLevel+1?0.1:0.3;
+
+ let forward=new THREE.Vector3();
+ camera.getWorldDirection(forward);
+ forward.y=0;forward.normalize();
+
+ let right=new THREE.Vector3();
+ right.crossVectors(camera.up,forward).normalize();
+
+ if(keys["KeyW"])camera.position.add(forward.clone().multiplyScalar(speed));
+ if(keys["KeyS"])camera.position.add(forward.clone().multiplyScalar(-speed));
+ if(keys["KeyA"])camera.position.add(right.clone().multiplyScalar(speed));
+ if(keys["KeyD"])camera.position.add(right.clone().multiplyScalar(-speed));
+
+ if(keys["Space"]&&canJump){
+  velocityY=0.35;
+  canJump=false;
+ }
+
+ velocityY-=0.02;
+ camera.position.y+=velocityY;
+
+ checkGround();
+ renderer.render(scene,camera);
+}
+animate();
+
+</script>
+</body>
+</html>
+    <script  src="./script.js"></script>
+
+  </body>
+  
+</html>
